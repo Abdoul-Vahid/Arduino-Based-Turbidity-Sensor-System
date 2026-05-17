@@ -14,30 +14,33 @@ Syifa Sarah Nuraini 2406368883
 
 ---
 
-
 ### Introduction
-The **Automated Water Quality Monitoring System** is an ATmega328P microcontroller-based device designed to evaluate water clarity in real time using an analog turbidity sensor. Built entirely in low-level AVR Assembly language, the system leverages hardware timers, analog-to-digital conversion, 16-bit logic arithmetic, I2C/TWI communication protocols, and UART serial logging to determine whether a water sample is clean or dirty. 
+The **Automated Water Quality Monitoring System** is an optimized, bare-metal embedded system driven by the ATmega328P microcontroller to track water clarity levels in real time using an analog turbidity sensor. Developed fully in low-level AVR Assembly language, the firmware manages precise hardware timing, automated 10-bit analog-to-digital conversions, inline multi-byte arithmetic calculations to map NTU values, and a multi-tier visual and serial telemetry signaling framework. 
 
-This system provides an optimized, bare-metal approach to environmental sensing, suitable for industrial automation, smart agriculture, and fluid monitoring applications.
+In this architectural layout, the system switches from serial I2C communication to an optimized **4-bit parallel bus interface** to handle data transfer to a standard 16x2 Liquid Crystal Display (LCD), demonstrating advanced micro-architectural pin reuse and resource management.
 
 ---
 
 ### Main Features
-* **Automated Periodic Sampling:** Utilizes hardware Timer1 in CTC mode to trigger precise water quality checks every 1 second via interrupts.
-* **Hardware ADC Processing:** Samples analog voltage variations from the turbidity sensor to measure water clarity levels accurately.
-* **16-bit Arithmetic Evaluation:** Compares the high and low bytes of the 10-bit ADC output against a predefined safety threshold (value < 201) to instantly categorize water quality.
-* **Dual-Mode Visual Indicators:** Controls an onboard status LED and outputs dedicated signals to a 16x2 LCD screen over an I2C communication bus.
-* **Telemetry Data Logging:** Streams continuous status bytes (`C` for Clean, `D` for Dirty) to an external monitoring console via UART at 9600 baud.
+* **Interrupt-Driven Scheduling:** Operates via Timer1 in CTC mode, utilizing the Compare Match A hardware interrupt vector (`__vector_11`) to execute automated evaluation routines without pipeline blocking.
+* **Inline NTU Scaling and Computation:** Employs dynamic 16-bit subtraction and fixed-point scale multiplications directly within the ISR to compute specific Nephelometric Turbidity Units (NTU), including full numerical overflow handling ($> 999$ NTU).
+* **Three-Tier Water Quality Classification:** Categorizes aquatic safety into three specific zones using conditional branching:
+  * **CLEAN:** Low turbidity conditions.
+  * **NORMAL:** Medium turbidity conditions.
+  * **DIRTY:** High turbidity / contaminated conditions.
+* **Direct 4-Bit Parallel LCD Driver:** Controls a 16x2 character LCD using a high-speed parallel nibble transmission method (`send_nibble`) across split I/O ports.
+* **Tri-LED Visual Alarm Matrix:** Dedicated digital output pins drive distinct colored status indicators corresponding directly to each individual water safety tier.
+* **Live Text Telemetry Stream:** Outputs real-time ASCII data values (`NTU: XYZ`) over USART serial interface at a stabilized 9600 baud rate.
 
 ---
 
 ### Module Structure
-The assembly codebase is architected into specific procedural sections handling core hardware sub-systems:
-* **Interrupt Vector Table:** Maps the system reset routine and handles the `timer1_isr` peripheral execution loop.
-* **Hardware Initialization:** Configures the Stack Pointer, I/O directions, USART communication registers, Analog Multiplexer (ADMUX), TWI bit rates, and Timer1 counters.
-* **Logic & Processing Core (`timer1_isr`):** Triggers the ADC conversion loop, reads 16-bit register outputs, executes threshold comparisons, and branches to conditional signaling routines.
-* **Serial Subroutines (`ser_send`):** Checks USART Data Register Empty flags (`UDRE0`) and handles byte transmission over serial.
-* **I2C / TWI Driver Core:** Formulates the communication pipeline (`i2c_start`, `i2c_write`, `i2c_stop`) used to transmit data frames to the LCD liquid crystal display backpack interface.
+The low-level source architecture is organized into clearly defined functional blocks:
+* **Vector Table Alignment:** Configures the hardware execution branch to route the Timer1 Compare Match routine directly to the primary processing logic at `__vector_11`.
+* **Hardware Setup (`setup`):** Manages data direction configurations (DDR registers), clears internal status registers, programs the 128-prescaler ADC module, sets up USART baud matrices, and launches the parallel LCD initialization routine.
+* **Mathematical Processor Core:** Handles raw 10-bit binary conversions from the sensor, applies linear correction logic, and runs an iterative 16-bit subtraction division loop (`div_loop`) to determine final NTU values.
+* **Parallel LCD Controller:** Employs nibble splitting (`swap`), command routing (`lcd_cmd`), and character generation loops (`lcd_data`, `lcd_print`) to drive data directly onto the parallel system bus.
+* **Asynchronous UART Driver:** Polls the USART Data Register Empty flag (`UDRE0`) to process and stream continuous string literals and multi-digit values smoothly.
 
 ---
 
@@ -45,34 +48,40 @@ The assembly codebase is architected into specific procedural sections handling 
 
 | Component Name | Quantity | Description |
 | :--- | :--- | :--- |
-| **ATmega328P MCU** (Arduino Uno) | 1 | Main system processing and controller unit |
-| **Analog Turbidity Sensor + Probe** | 1 | Optical sensor measuring light transmission through water |
-| **16x2 LCD with I2C Backpack** | 1 | Character display unit utilizing PCF8574 I2C adapter (Address `0x27`) |
-| **Status LED** (Onboard or External) | 1 | Visual indicator for alert and clean status signaling |
-| **9V Battery / DC Power Supply** | 1 | Main power supply rail for the standalone system |
-| **Breadboard & Jumper Wires** | 1 set | Physical prototyping connections |
+| **ATmega328P MCU** (Arduino Uno) | 1 | Core micro-processing and data control unit |
+| **Analog Turbidity Sensor + Probe** | 1 | Optical sensing module measuring light dispersion in liquid |
+| **16x2 Character LCD** | 1 | Parallel display module interface |
+| **Clean Status LED** | 1 | Visual indicator for pristine water conditions |
+| **Normal Status LED** | 1 | Visual indicator for acceptable water conditions |
+| **Dirty Status LED** | 1 | Visual indicator for critical contamination levels |
+| **9V Battery / DC Power Rail** | 1 | Main stable power source for standalone operations |
+| **Prototyping Breadboard & Wire Set** | 1 | Physical interface links |
 
 ---
 
 ### ATmega328P Pin Configuration
 
-| Function | ATmega328P Pin | Physical / Arduino Mapping |
+| Function / Peripheral | ATmega328P Pin | Physical / Arduino Mapping |
 | :--- | :--- | :--- |
-| **Turbidity Sensor Analog Out** | PC0 | Analog Input Pin **A0** |
-| **Status LED Indicator** | PB5 | Digital Pin **13** (Onboard LED) |
-| **I2C SDA (Data Line)** | PC4 | Analog Pin **A4** / Dedicated SDA |
-| **I2C SCL (Clock Line)** | PC5 | Analog Pin **A5** / Dedicated SCL |
-| **UART TX (Serial Transmit)** | PD1 | Digital Pin **1** / TX |
-| **UART RX (Serial Receive)** | PD0 | Digital Pin **0** / RX |
+| **Turbidity Sensor Input** | PC0 | Analog Input Pin **A0** |
+| **LCD Register Select (RS)** | PB0 | Digital Pin **8** |
+| **LCD Enable (EN)** | PB1 | Digital Pin **9** |
+| **LCD Parallel Data Bus (D4–D7)** | PD4 – PD7 | Digital Pins **4, 5, 6, 7** |
+| **Clean LED Indicator** | PD4 | Digital Pin **4** (Shared Bus pin) |
+| **Normal LED Indicator** | PD5 | Digital Pin **5** (Shared Bus pin) |
+| **Dirty LED Indicator** | PB5 | Digital Pin **13** (Onboard LED) |
+| **UART TX (Serial Output)** | PD1 | Digital Pin **1** / TX |
+| **UART RX (Serial Input)** | PD0 | Digital Pin **0** / RX |
 
 ---
 
 ### System Workflow
-1. **System Wake & Init:** The microcontroller configures memory bounds, sets up peripheral registers (9600 Baud UART, 100kHz I2C, 1-second Timer1 interrupts), initializes the I2C LCD screen, and enters an optimized `idle` loop.
-2. **Interrupt Triggering:** Every 1 second, Timer1 reaches its target match register, pausing the idle loop to jump into the `timer1_isr` block.
-3. **Sensor Processing:** The ADC samples the analog voltage coming from the turbidity sensor on pin **A0**. The 10-bit result is processed through registers `ADCL` and `ADCH`.
-4. **16-bit Threshold Comparison:** The 10-bit sensor value is evaluated against the clear-water baseline threshold of **201**.
-5. **Conditional Feedback Execution:**
-   * **If Water is Clean (>= 201):** Pin `PB5` is pulled `LOW` (LED turns off), and the ASCII character `'C'` is sent across the UART interface to log a safe status.
-   * **If Water is Dirty (< 201):** Pin `PB5` is driven `HIGH` (LED turns on to alert the user), and the ASCII character `'D'` is sent across the UART line to signal contamination.
-6. **Display Refresh:** The program initiates the I2C routine to transmit state metrics directly to the 16x2 display module before resetting the interrupt flags and returning to the idle loop.
+1. **Peripheral Power-On Setup:** The controller sets output directions for parallel data manipulation, configures the serial transmission registers for 9600 baud, sets up the ADC reference, launches an extended multi-stage delay to safely initialize the parallel LCD display matrix, and activates global interrupts (`sei`).
+2. **Periodic Interrupt Fire:** Timer1 matches its compare registers, pausing the background listening frame to enter the `__vector_11` routine.
+3. **ADC Conversion Loop:** The system forces the `ADSC` bit high, samples the current analog voltage line coming from the probe on Pin **A0**, and locks the conversion results inside `ADCL` and `ADCH`.
+4. **NTU Translation & Math Block:** The firmware processes raw hardware voltage through a mathematical translation sequence to subtract baseline properties, scales the results through automated bit shifts (`lsl`/`rol`), and executes an assembly division sequence to calculate the final scalar value.
+5. **Threshold Verification & Branching:**
+   * **Clean State:** If calculated parameters stay within safe bounds, the system turns on the Clean LED, clears alternative lights, and sends a `Status: CLEAN` data packet to the LCD.
+   * **Normal State:** If turbidity values slide into mid-range limits, the Normal LED is latched high, and a `Status: NORMAL` data packet is written to the screen.
+   * **Dirty State:** If values cross critical pollution marks, the Dirty LED flashes on, and a `Status: DIRTY` warning is pushed onto the LCD grid.
+6. **Telemetry Transmission:** The live calculated numerical value is converted into ASCII characters on-the-fly and streamed out through the UART port (`NTU: XYZ` or `> 999` if overloaded) before restoring context registers and returning to normal execution.
