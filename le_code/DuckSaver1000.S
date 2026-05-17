@@ -5,6 +5,7 @@
 .global __vector_11
 
 setup:
+    sbi _SFR_IO_ADDR(DDRB), 5
     sbi _SFR_IO_ADDR(DDRB), 0
     sbi _SFR_IO_ADDR(DDRB), 1
     sbi _SFR_IO_ADDR(DDRD), 4
@@ -197,6 +198,8 @@ check_300:
     rjmp status_clean
 
 status_clean:
+    cbi _SFR_IO_ADDR(PORTB), 5
+
     ldi r30, lo8(ser_ntu_label)
     ldi r31, hi8(ser_ntu_label)
     rcall ser_print_str
@@ -220,6 +223,8 @@ status_clean:
     rjmp done_isr
 
 status_normal:
+    cbi _SFR_IO_ADDR(PORTB), 5
+
     ldi r30, lo8(ser_ntu_label)
     ldi r31, hi8(ser_ntu_label)
     rcall ser_print_str
@@ -243,6 +248,8 @@ status_normal:
     rjmp done_isr
 
 status_dirty:
+    sbi _SFR_IO_ADDR(PORTB), 5
+
     ldi r30, lo8(ser_ntu_label)
     ldi r31, hi8(ser_ntu_label)
     rcall ser_print_str
@@ -303,4 +310,196 @@ ntu_ovf_s:
 ntu_ok_s:
     ldi r18, 0
 hu_s:
-    cpi r17
+    cpi r17, 0x01
+    brsh hu_sub_s
+    cpi r16, 100
+    brlo hu_end_s
+hu_sub_s:
+    subi r16, 100
+    sbci r17, 0
+    inc r18
+    rjmp hu_s
+hu_end_s:
+    ldi r19, '0'
+    add r19, r18
+    push r16
+    push r17
+    mov r16, r19
+    rcall ser_send
+    pop r17
+    pop r16
+
+    ldi r18, 0
+te_s:
+    cpi r16, 10
+    brlo te_end_s
+    subi r16, 10
+    inc r18
+    rjmp te_s
+te_end_s:
+    ldi r19, '0'
+    add r19, r18
+    push r16
+    mov r16, r19
+    rcall ser_send
+    pop r16
+
+    ldi r19, '0'
+    add r19, r16
+    mov r16, r19
+    rcall ser_send
+
+pns_done:
+    pop r31
+    pop r30
+    pop r19
+    pop r18
+    pop r17
+    pop r16
+    ret
+
+ser_send:
+    lds r17, UCSR0A
+    sbrs r17, UDRE0
+    rjmp ser_send
+    sts UDR0, r16
+    ret
+
+ser_print_str:
+    lpm r16, Z+
+    cpi r16, 0
+    breq ser_done
+    rcall ser_send
+    rjmp ser_print_str
+ser_done:
+    ret
+
+ser_newline:
+    ldi r16, '\r'
+    rcall ser_send
+    ldi r16, '\n'
+    rcall ser_send
+    ret
+
+send_nibble:
+    in r17, _SFR_IO_ADDR(PORTD)
+    andi r17, 0x0F
+    mov r18, r16
+    andi r18, 0xF0
+    or r17, r18
+    out _SFR_IO_ADDR(PORTD), r17
+    rcall small_delay
+    sbi _SFR_IO_ADDR(PORTB), 1
+    rcall small_delay
+    rcall small_delay
+    cbi _SFR_IO_ADDR(PORTB), 1
+    rcall small_delay
+    ret
+
+lcd_cmd:
+    cbi _SFR_IO_ADDR(PORTB), 0
+    push r16
+    rcall send_nibble
+    pop r16
+    swap r16
+    rcall send_nibble
+    rcall small_delay
+    ret
+
+lcd_data:
+    sbi _SFR_IO_ADDR(PORTB), 0
+    push r16
+    rcall send_nibble
+    pop r16
+    swap r16
+    rcall send_nibble
+    rcall small_delay
+    ret
+
+lcd_print:
+    lpm r16, Z+
+    cpi r16, 0
+    breq lcd_print_done
+    rcall lcd_data
+    rjmp lcd_print
+lcd_print_done:
+    ret
+
+lcd_init:
+    rcall big_delay
+    rcall big_delay
+    rcall big_delay
+    cbi _SFR_IO_ADDR(PORTB), 0
+    ldi r16, 0x30
+    rcall send_nibble
+    rcall big_delay
+    ldi r16, 0x30
+    rcall send_nibble
+    rcall big_delay
+    ldi r16, 0x30
+    rcall send_nibble
+    rcall big_delay
+    ldi r16, 0x20
+    rcall send_nibble
+    rcall big_delay
+    ldi r16, 0x28
+    rcall lcd_cmd
+    rcall big_delay
+    ldi r16, 0x0E
+    rcall lcd_cmd
+    rcall big_delay
+    ldi r16, 0x01
+    rcall lcd_cmd
+    rcall big_delay
+    rcall big_delay
+    ldi r16, 0x06
+    rcall lcd_cmd
+    rcall big_delay
+    ret
+
+small_delay:
+    ldi r19, 255
+sd1:
+    nop
+    nop
+    nop
+    dec r19
+    brne sd1
+    ret
+
+big_delay:
+    ldi r20, 255
+bd1:
+    ldi r19, 255
+bd2:
+    nop
+    dec r19
+    brne bd2
+    dec r20
+    brne bd1
+    ret
+
+ser_ntu_label:
+    .ascii "NTU: "
+    .byte 0
+ser_overflow:
+    .ascii "> 999"
+    .byte 0
+lcd_clean1:
+    .ascii "Water Quality:  "
+    .byte 0
+lcd_clean2:
+    .ascii "Status: CLEAN   "
+    .byte 0
+lcd_normal1:
+    .ascii "Water Quality:  "
+    .byte 0
+lcd_normal2:
+    .ascii "Status: NORMAL  "
+    .byte 0
+lcd_dirty1:
+    .ascii "Water Quality:  "
+    .byte 0
+lcd_dirty2:
+    .ascii "Status: DIRTY   "
+    .byte 0
